@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Candy Match Mobile</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .header {
+      width: 90vw;
+      max-width: 400px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      background: rgba(255, 255, 255, 0.4);
+      padding: 10px 20px;
+      border-radius: 20px;
+      backdrop-filter: blur(5px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    .score-container, .moves-container {
+      text-align: center;
+    }
+
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #666;
+      font-weight: bold;
+    }
+
+    .value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    #grid {
+      width: 90vw;
+      height: 90vw;
+      max-width: 400px;
+      max-height: 400px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 15px;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      gap: 4px;
+      padding: 6px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+      border: 2px solid rgba(255,255,255,0.5);
+    }
+
+    .cell {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 26px;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.2s ease;
+      position: relative;
+    }
+
+    .cell.selected {
+      transform: scale(0.85);
+      border: 2px solid #fff;
+    }
+
+    .cell.matched {
+      transform: scale(0);
+      opacity: 0;
+    }
+
+    /* Modal for Game Over */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .modal-content {
+      background: white;
+      padding: 30px;
+      border-radius: 20px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+
+    .btn {
+      margin-top: 15px;
+      padding: 10px 25px;
+      background: #ff4757;
+      color: white;
+      border: none;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="score-container">
+      <div class="label">Score</div>
+      <div id="score" class="value">0</div>
+    </div>
+    <div class="moves-container">
+      <div class="label">Moves Left</div>
+      <div id="moves" class="value">20</div>
+    </div>
+  </div>
+
+  <div id="grid"></div>
+
+  <div id="gameOverModal" class="modal">
+    <div class="modal-content">
+      <h2>Game Over!</h2>
+      <p>Final Score: <span id="finalScore">0</span></p>
+      <button class="btn" onclick="restartGame()">Play Again</button>
+    </div>
+  </div>
+
+  <script>
+    const width = 8;
+    const grid = document.getElementById('grid');
+    const scoreDisplay = document.getElementById('score');
+    const movesDisplay = document.getElementById('moves');
+    const modal = document.getElementById('gameOverModal');
+    const finalScoreDisplay = document.getElementById('finalScore');
+
+    const candyTypes = ['🍬', '🍭', '🍫', '🍩', '🍇', '🧁'];
+    let board = [];
+    let score = 0;
+    let moves = 20;
+    let isProcessing = false;
+
+    // Mobile Touch Tracking Variables
+    let startX = 0;
+    let startY = 0;
+    let startTile = null;
+
+    function createBoard() {
+      board = [];
+      grid.innerHTML = '';
+      for (let i = 0; i < width * width; i++) {
+        const cell = document.createElement('div');
+        cell.classList.add('cell');
+        cell.setAttribute('data-id', i);
+        
+        let randomCandy;
+        do {
+          randomCandy = candyTypes[Math.floor(Math.random() * candyTypes.length)];
+        } while (
+          (i >= 2 && board[i - 1] === randomCandy && board[i - 2] === randomCandy) ||
+          (i >= width * 2 && board[i - width] === randomCandy && board[i - width * 2] === randomCandy)
+        );
+
+        board.push(randomCandy);
+        cell.innerHTML = randomCandy;
+        grid.appendChild(cell);
+
+        // Touch Listeners for Mobile Swiping
+        cell.addEventListener('touchstart', handleTouchStart, { passive: false });
+        cell.addEventListener('touchend', handleTouchEnd, { passive: false });
+      }
+    }
+
+    function handleTouchStart(e) {
+      if (isProcessing || moves <= 0) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      startTile = parseInt(e.currentTarget.getAttribute('data-id'));
+    }
+
+    function handleTouchEnd(e) {
+      if (!startTile && startTile !== 0) return;
+
+      let endX = e.changedTouches[0].clientX;
+      let endY = e.changedTouches[0].clientY;
+
+      let diffX = endX - startX;
+      let diffY = endY - startY;
+
+      // Minimum swipe distance threshold (20px)
+      if (Math.abs(diffX) < 20 && Math.abs(diffY) < 20) return;
+
+      let targetTile = null;
+
+      // Determine swipe direction
+      if (Math.abs(diffX) > Math.abs(diffY)) {
+        // Horizontal Swipe
+        if (diffX > 0 && (startTile % width) < width - 1) targetTile = startTile + 1; // Right
+        else if (diffX < 0 && (startTile % width) > 0) targetTile = startTile - 1; // Left
+      } else {
+        // Vertical Swipe
+        if (diffY > 0 && startTile + width < width * width) targetTile = startTile + width; // Down
+        else if (diffY < 0 && startTile - width >= 0) targetTile = startTile - width; // Up
+      }
+
+      if (targetTile !== null) {
+        swapCandies(startTile, targetTile);
+      }
+
+      startTile = null;
+    }
+
+    async function swapCandies(id1, id2) {
+      isProcessing = true;
+
+      // Swap in JS State
+      let temp = board[id1];
+      board[id1] = board[id2];
+      board[id2] = temp;
+
+      updateDOM();
+
+      // Check if swap makes valid matches
+      let matches = checkMatches();
+
+      if (matches.length > 0) {
+        moves--;
+        movesDisplay.innerText = moves;
+        await processBoard();
+      } else {
+        // Revert Swap back if invalid
+        await new Promise(r => setTimeout(r, 200));
+        temp = board[id1];
+        board[id1] = board[id2];
+        board[id2] = temp;
+        updateDOM();
+        isProcessing = false;
+      }
+
+      checkGameOver();
+    }
+
+    function checkMatches() {
+      let matchedIndices = new Set();
+
+      // Check Horizontal Matches
+      for (let i = 0; i < width * width; i++) {
+        if (i % width < width - 2) {
+          if (board[i] && board[i] === board[i + 1] && board[i] === board[i + 2]) {
+            matchedIndices.add(i);
+            matchedIndices.add(i + 1);
+            matchedIndices.add(i + 2);
+          }
+        }
+      }
+
+      // Check Vertical Matches
+      for (let i = 0; i < width * (width - 2); i++) {
+        if (board[i] && board[i] === board[i + width] && board[i] === board[i + width * 2]) {
+          matchedIndices.add(i);
+          matchedIndices.add(i + width);
+          matchedIndices.add(i + width * 2);
+        }
+      }
+
+      return Array.from(matchedIndices);
+    }
+
+    async function processBoard() {
+      let matches = checkMatches();
+
+      while (matches.length > 0) {
+        // Add Score
+        score += matches.length * 10;
+        scoreDisplay.innerText = score;
+
+        // Visual animation for pop
+        const cells = grid.children;
+        matches.forEach(index => {
+          cells[index].classList.add('matched');
+          board[index] = null;
+        });
+
+        await new Promise(r => setTimeout(r, 250));
+
+        // Drop Candies Downwards
+        for (let col = 0; col < width; col++) {
+          let emptySpaces = 0;
+          for (let row = width - 1; row >= 0; row--) {
+            let idx = row * width + col;
+            if (board[idx] === null) {
+              emptySpaces++;
+            } else if (emptySpaces > 0) {
+              board[(row + emptySpaces) * width + col] = board[idx];
+              board[idx] = null;
+            }
+          }
+
+          // Fill top empty spaces with new random candies
+          for (let row = 0; row < emptySpaces; row++) {
+            board[row * width + col] = candyTypes[Math.floor(Math.random() * candyTypes.length)];
+          }
+        }
+
+        updateDOM();
+        await new Promise(r => setTimeout(r, 200));
+
+        // Re-check for cascading multi-combos
+        matches = checkMatches();
+      }
+
+      isProcessing = false;
+    }
+
+    function updateDOM() {
+      const cells = grid.children;
+      for (let i = 0; i < board.length; i++) {
+        cells[i].innerHTML = board[i] || '';
+        cells[i].classList.remove('matched');
+      }
+    }
+
+    function checkGameOver() {
+      if (moves <= 0) {
+        finalScoreDisplay.innerText = score;
+        modal.style.display = 'flex';
+      }
+    }
+
+    function restartGame() {
+      score = 0;
+      moves = 20;
+      scoreDisplay.innerText = score;
+      movesDisplay.innerText = moves;
+      modal.style.display = 'none';
+      createBoard();
+    }
+
+    // Initialize Game
+    createBoard();
+  </script>
+</body>
+</html>
